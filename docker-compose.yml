@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: govlens-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: govlens
+      POSTGRES_PASSWORD: govlens
+      POSTGRES_DB: govlens
+    ports:
+      - "5434:5432"
+    volumes:
+      - govlens_postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  govlens_postgres_data:
