@@ -217,6 +217,14 @@ Run ingestion:
 python scripts/ingest_sources.py
 ```
 
+If you already ran the first seed and saw GAO/Congress.gov failures, apply the source registry fix:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/003_source_registry_fixes.sql
+```
+
+This switches GAO to the direct PDF URL and disables the Congress.gov API source until API-specific ingestion is implemented.
+
 Run only one source while testing:
 
 ```bash
@@ -227,6 +235,92 @@ Inspect recent fetch events:
 
 ```bash
 docker compose exec postgres psql -U govlens -d govlens -c "select s.source_name, e.status, e.http_status, left(e.content_hash, 12) as hash, e.object_path, e.fetched_at from source_fetch_events e join sources s on s.source_id = e.source_id order by e.fetched_at desc limit 10;"
+```
+
+## Step 3: Text Extraction
+
+The third implemented component extracts readable text from successful raw fetches.
+
+Business process:
+
+1. Find successful `source_fetch_events` with saved raw files.
+2. Skip events that already have extracted text.
+3. Use the source type to choose an extractor:
+   - HTML uses BeautifulSoup.
+   - PDF uses pypdf.
+4. Normalize whitespace.
+5. Store extracted text and quality signals in `extracted_text`.
+6. Quarantine extraction results that are too short.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/005_create_extracted_text.sql
+```
+
+Install the updated dependencies:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Run extraction:
+
+```bash
+python scripts/extract_text.py
+```
+
+Inspect extracted text records:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select s.source_name, t.extraction_status, t.extraction_method, t.character_count, t.word_count, t.error_message from extracted_text t join sources s on s.source_id = t.source_id order by t.extracted_at desc;"
+```
+
+## Step 4: Document Metadata And Quality Checks
+
+The fourth implemented component converts successful extracted text into governed document records.
+
+Business process:
+
+1. Read successful extracted text records.
+2. Normalize document metadata from the source registry:
+   - title;
+   - source URL;
+   - agency;
+   - domain;
+   - topic;
+   - document type;
+   - content hash.
+3. Create one `documents` row per source/content version.
+4. Run quality checks.
+5. Store one `quality_results` row per rule.
+6. Mark documents `ai_ready` only if required checks pass.
+7. Mark documents `quarantined` when required quality checks fail.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/006_create_documents_quality.sql
+```
+
+Run document normalization and quality checks:
+
+```bash
+source .venv/bin/activate
+python scripts/build_documents.py
+```
+
+Inspect document readiness:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select title, agency, document_type, document_status, character_count, word_count, version_number from documents order by created_at desc;"
+```
+
+Inspect failed quality rules:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select d.title, q.rule_name, q.severity, q.passed, q.measured_value from quality_results q join documents d on d.document_id = q.document_id where q.passed = false order by d.title, q.rule_name;"
 ```
 
 ## Comparison: GovLens vs Job-Matching App

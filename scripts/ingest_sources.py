@@ -131,7 +131,7 @@ def load_active_sources(conn: psycopg.Connection, limit: int | None) -> list[dic
         SELECT *
         FROM sources
         WHERE is_active = true
-          AND fetch_method IN ('http_get', 'api_query')
+          AND fetch_method = 'http_get'
         ORDER BY priority, source_name
     """
 

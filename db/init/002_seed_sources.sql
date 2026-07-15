@@ -48,10 +48,11 @@ INSERT INTO sources (
     'Policy memo for agency AI governance, innovation, and risk management.'
 ),
 (
-    -- Public GAO page. Useful for governance/accountability language.
+    -- Direct public GAO PDF. The GAO product landing page may block scripted
+    -- fetches, but this PDF URL is the raw document we need for ingestion.
     'GAO Artificial Intelligence Accountability Framework',
-    'https://www.gao.gov/products/gao-21-519sp',
-    'html',
+    'https://www.gao.gov/assets/gao-21-519sp.pdf',
+    'pdf',
     'Government Accountability Office',
     'federal_ai_policy',
     'AI accountability',
@@ -85,7 +86,7 @@ INSERT INTO sources (
     'api_query',
     'weekly',
     50,
-    'Registry entry for future bill and legislation search ingestion.'
+    'Registry entry for future bill and legislation search ingestion. Requires API-specific ingestion and likely an API key.'
 )
 -- source_url is unique, so this makes the seed idempotent.
 ON CONFLICT (source_url) DO UPDATE SET
