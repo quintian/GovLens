@@ -282,6 +282,9 @@ CREATE INDEX IF NOT EXISTS idx_document_chunks_source
 CREATE INDEX IF NOT EXISTS idx_document_chunks_hash
     ON document_chunks (chunk_hash);
 
+CREATE INDEX IF NOT EXISTS idx_document_chunks_text_search
+    ON document_chunks USING gin (to_tsvector('english', chunk_text));
+
 -- chunk_embeddings stores vector representations of document chunks.
 -- This is the retrieval layer: user questions are converted into the same
 -- vector shape, then pgvector finds nearby chunk vectors.
@@ -308,3 +311,46 @@ CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_model
 
 CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_vector
     ON chunk_embeddings USING hnsw (embedding vector_cosine_ops);
+
+-- retrieval_queries records each user/search request. This is the start of
+-- retrieval observability: later we can measure latency, result quality, and
+-- which filters were used.
+CREATE TABLE IF NOT EXISTS retrieval_queries (
+    query_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query_text TEXT NOT NULL,
+    retrieval_mode TEXT NOT NULL CHECK (
+        retrieval_mode IN ('vector', 'keyword', 'hybrid')
+    ),
+    embedding_model TEXT NOT NULL,
+    filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    result_count INTEGER NOT NULL DEFAULT 0,
+    latency_ms INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_retrieval_queries_time
+    ON retrieval_queries (started_at DESC);
+
+-- retrieval_results stores the ranked chunks returned for a query. These rows
+-- preserve citation lineage from search result to chunk, document, and source.
+CREATE TABLE IF NOT EXISTS retrieval_results (
+    retrieval_result_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query_id UUID NOT NULL REFERENCES retrieval_queries(query_id) ON DELETE CASCADE,
+    chunk_id UUID NOT NULL REFERENCES document_chunks(chunk_id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+    source_id UUID NOT NULL REFERENCES sources(source_id),
+    rank INTEGER NOT NULL,
+    vector_similarity DOUBLE PRECISION NOT NULL DEFAULT 0,
+    keyword_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+    hybrid_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (query_id, rank)
+);
+
+CREATE INDEX IF NOT EXISTS idx_retrieval_results_query
+    ON retrieval_results (query_id, rank);
+
+CREATE INDEX IF NOT EXISTS idx_retrieval_results_chunk
+    ON retrieval_results (chunk_id);

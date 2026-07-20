@@ -410,6 +410,55 @@ Search the embedded chunks:
 python scripts/search_chunks.py "AI risk management for federal agencies"
 ```
 
+## Step 7: Hybrid Retrieval With Citations
+
+The seventh implemented component combines vector similarity, keyword search, metadata filters, citations, and retrieval logs.
+
+Business process:
+
+1. Convert the user query into the same vector format as document chunks.
+2. Score each embedded chunk by vector similarity.
+3. Score each chunk by PostgreSQL full-text keyword relevance.
+4. Combine both scores into a hybrid rank.
+5. Apply optional metadata filters such as agency, topic, or document type.
+6. Return citation-ready results with chunk preview, title, agency, source URL, and document version.
+7. Write retrieval logs so searches can be reviewed and evaluated later.
+
+Why this matters:
+
+Vector search is useful for meaning, but keyword search is still valuable for exact policy terms, agency names, law numbers, or phrases. Hybrid retrieval uses both signals and keeps the result tied to source metadata.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/009_create_retrieval_logs.sql
+```
+
+Run hybrid retrieval:
+
+```bash
+source .venv/bin/activate
+python scripts/retrieve_chunks.py "AI risk management for federal agencies"
+```
+
+Try metadata filters:
+
+```bash
+python scripts/retrieve_chunks.py "AI governance" --agency "Office of Management and Budget"
+```
+
+Inspect recent retrieval logs:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select query_text, retrieval_mode, result_count, latency_ms, started_at from retrieval_queries order by started_at desc limit 5;"
+```
+
+Inspect logged result lineage:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select q.query_text, r.rank, d.title, c.chunk_index, r.hybrid_score from retrieval_results r join retrieval_queries q on q.query_id = r.query_id join documents d on d.document_id = r.document_id join document_chunks c on c.chunk_id = r.chunk_id order by q.started_at desc, r.rank limit 10;"
+```
+
 ## Comparison: GovLens vs Job-Matching App
 
 A job-matching app can also use AI and data engineering. It may ingest resumes, parse skills, normalize job postings, and rank job fit.
