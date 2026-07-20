@@ -369,6 +369,47 @@ Inspect generated chunks:
 docker compose exec postgres psql -U govlens -d govlens -c "select d.title, count(c.chunk_id) as chunks, min(c.word_count) as min_words, max(c.word_count) as max_words from document_chunks c join documents d on d.document_id = c.document_id group by d.title order by d.title;"
 ```
 
+## Step 6: Chunk Embeddings And Vector Search
+
+The sixth implemented component turns retrieval chunks into vectors and stores them in PostgreSQL with `pgvector`.
+
+Business process:
+
+1. Read chunks from `document_chunks`.
+2. Skip chunks that already have an embedding for the selected model.
+3. Convert each chunk's text into a numeric vector.
+4. Store the vector in `chunk_embeddings` with model name, dimension, chunk hash, document ID, and source ID.
+5. Convert a user search query into the same vector format.
+6. Use `pgvector` cosine distance to find the nearest chunks.
+7. Return matching chunks with title, agency, source URL, and text preview.
+
+The demo uses `local_hashing_v1`, a deterministic local embedding method. It does not require an API key or model download, so the database/vector workflow can be tested offline. In a production version, this same step can be replaced with OpenAI embeddings, SentenceTransformers, or another embedding service.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/008_create_chunk_embeddings.sql
+```
+
+Create embeddings:
+
+```bash
+source .venv/bin/activate
+python scripts/embed_chunks.py
+```
+
+Inspect embedding counts:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select embedding_model, embedding_dimension, count(*) as embeddings from chunk_embeddings group by embedding_model, embedding_dimension;"
+```
+
+Search the embedded chunks:
+
+```bash
+python scripts/search_chunks.py "AI risk management for federal agencies"
+```
+
 ## Comparison: GovLens vs Job-Matching App
 
 A job-matching app can also use AI and data engineering. It may ingest resumes, parse skills, normalize job postings, and rank job fit.
