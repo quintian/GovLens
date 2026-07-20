@@ -179,8 +179,12 @@ docker compose exec postgres psql -U govlens -d govlens -c "select source_name, 
 - `sources`: canonical list of public sources the pipeline may ingest.
 - `ingestion_runs`: one row per ingestion run.
 - `source_fetch_events`: one row per source fetch attempt.
+- `extracted_text`: readable text extracted from raw HTML/PDF files.
+- `documents`: normalized document metadata and AI-readiness status.
+- `quality_results`: one row per document quality rule result.
+- `document_chunks`: retrieval-sized text sections for future embeddings.
 
-Later steps will add document, raw object, extracted text, chunk, embedding, quality, retrieval, and lineage tables.
+Later steps will add embedding, retrieval, and lineage tables.
 
 ## Step 2: Raw Source Ingestion
 
@@ -321,6 +325,48 @@ Inspect failed quality rules:
 
 ```bash
 docker compose exec postgres psql -U govlens -d govlens -c "select d.title, q.rule_name, q.severity, q.passed, q.measured_value from quality_results q join documents d on d.document_id = q.document_id where q.passed = false order by d.title, q.rule_name;"
+```
+
+## Step 5: Document Chunking
+
+The fifth implemented component splits AI-ready documents into smaller retrieval units.
+
+Business process:
+
+1. Read documents marked `ai_ready`.
+2. Join each document to its full readable text in `extracted_text`.
+3. Skip documents that already have chunks.
+4. Split each document into word-based chunks with overlap.
+5. Store each chunk with its document ID, source ID, chunk order, hash, word count, and character count.
+6. Preserve lineage so each future search result can point from chunk to document to source URL.
+
+Why this matters:
+
+AI retrieval should not search one giant PDF as a single block. Smaller chunks make search more focused, and overlap helps avoid losing meaning at chunk boundaries.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/007_create_document_chunks.sql
+```
+
+Run chunking:
+
+```bash
+source .venv/bin/activate
+python scripts/chunk_documents.py
+```
+
+You can tune chunk size while testing:
+
+```bash
+python scripts/chunk_documents.py --chunk-words 180 --overlap-words 30
+```
+
+Inspect generated chunks:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select d.title, count(c.chunk_id) as chunks, min(c.word_count) as min_words, max(c.word_count) as max_words from document_chunks c join documents d on d.document_id = c.document_id group by d.title order by d.title;"
 ```
 
 ## Comparison: GovLens vs Job-Matching App

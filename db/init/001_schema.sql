@@ -251,3 +251,33 @@ CREATE INDEX IF NOT EXISTS idx_quality_results_document
 
 CREATE INDEX IF NOT EXISTS idx_quality_results_failed
     ON quality_results (passed, severity);
+
+-- document_chunks stores retrieval-sized pieces of AI-ready documents.
+-- Long policy PDFs are too large to retrieve as one unit, so we split each
+-- normalized document into smaller chunks while preserving lineage back to the
+-- document, source, fetch event, and extracted text.
+CREATE TABLE IF NOT EXISTS document_chunks (
+    chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+    source_id UUID NOT NULL REFERENCES sources(source_id),
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    chunk_hash TEXT NOT NULL,
+    chunk_method TEXT NOT NULL DEFAULT 'word_window',
+    character_count INTEGER NOT NULL DEFAULT 0,
+    word_count INTEGER NOT NULL DEFAULT 0,
+    section_heading TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- One stable ordered set of chunks per document version.
+    UNIQUE (document_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_document
+    ON document_chunks (document_id, chunk_index);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_source
+    ON document_chunks (source_id);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_hash
+    ON document_chunks (chunk_hash);
