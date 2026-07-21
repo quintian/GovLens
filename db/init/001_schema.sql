@@ -354,3 +354,59 @@ CREATE INDEX IF NOT EXISTS idx_retrieval_results_query
 
 CREATE INDEX IF NOT EXISTS idx_retrieval_results_chunk
     ON retrieval_results (chunk_id);
+
+-- evaluation_questions is a small gold set for retrieval quality checks.
+-- Each row says: for this question, what source/document should retrieval find?
+CREATE TABLE IF NOT EXISTS evaluation_questions (
+    evaluation_question_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    question_text TEXT NOT NULL UNIQUE,
+    expected_title_contains TEXT,
+    expected_source_url TEXT,
+    expected_agency TEXT,
+    notes TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_questions_active
+    ON evaluation_questions (is_active);
+
+-- evaluation_runs summarizes one retrieval evaluation execution.
+CREATE TABLE IF NOT EXISTS evaluation_runs (
+    evaluation_run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    retrieval_mode TEXT NOT NULL CHECK (
+        retrieval_mode IN ('vector', 'keyword', 'hybrid')
+    ),
+    embedding_model TEXT NOT NULL,
+    top_k INTEGER NOT NULL,
+    question_count INTEGER NOT NULL DEFAULT 0,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    mean_reciprocal_rank DOUBLE PRECISION NOT NULL DEFAULT 0,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_runs_time
+    ON evaluation_runs (started_at DESC);
+
+-- evaluation_results stores one row per question per evaluation run.
+CREATE TABLE IF NOT EXISTS evaluation_results (
+    evaluation_result_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    evaluation_run_id UUID NOT NULL REFERENCES evaluation_runs(evaluation_run_id) ON DELETE CASCADE,
+    evaluation_question_id UUID NOT NULL REFERENCES evaluation_questions(evaluation_question_id),
+    matched BOOLEAN NOT NULL DEFAULT FALSE,
+    first_relevant_rank INTEGER,
+    top_title TEXT,
+    top_source_url TEXT,
+    top_hybrid_score DOUBLE PRECISION,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (evaluation_run_id, evaluation_question_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_run
+    ON evaluation_results (evaluation_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_matched
+    ON evaluation_results (matched);

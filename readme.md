@@ -459,6 +459,48 @@ Inspect logged result lineage:
 docker compose exec postgres psql -U govlens -d govlens -c "select q.query_text, r.rank, d.title, c.chunk_index, r.hybrid_score from retrieval_results r join retrieval_queries q on q.query_id = r.query_id join documents d on d.document_id = r.document_id join document_chunks c on c.chunk_id = r.chunk_id order by q.started_at desc, r.rank limit 10;"
 ```
 
+## Step 8: Retrieval Evaluation
+
+The eighth implemented component evaluates whether retrieval returns the expected source documents for known questions.
+
+Business process:
+
+1. Store a small gold set of evaluation questions.
+2. For each question, store the expected document title/agency/source match.
+3. Run the same retrieval code used by normal search.
+4. Check whether the expected document appears in the top K results.
+5. Store one evaluation run summary with hit rate and mean reciprocal rank.
+6. Store one result row per question for debugging misses.
+
+Why this matters:
+
+Search results can look good in one manual test but fail across normal user questions. Evaluation gives the project a repeatable way to measure retrieval quality before adding answer generation.
+
+Apply the table migration if your database already exists:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/010_create_retrieval_evaluation.sql
+```
+
+Run retrieval evaluation:
+
+```bash
+source .venv/bin/activate
+python scripts/evaluate_retrieval.py
+```
+
+Inspect evaluation runs:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select evaluation_run_id, retrieval_mode, top_k, question_count, hit_count, mean_reciprocal_rank, completed_at from evaluation_runs order by started_at desc limit 5;"
+```
+
+Inspect missed questions:
+
+```bash
+docker compose exec postgres psql -U govlens -d govlens -c "select q.question_text, r.matched, r.first_relevant_rank, r.top_title from evaluation_results r join evaluation_questions q on q.evaluation_question_id = r.evaluation_question_id where r.matched = false order by r.created_at desc;"
+```
+
 ## Comparison: GovLens vs Job-Matching App
 
 A job-matching app can also use AI and data engineering. It may ingest resumes, parse skills, normalize job postings, and rank job fit.
