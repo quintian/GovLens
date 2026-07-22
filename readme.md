@@ -501,6 +501,49 @@ Inspect missed questions:
 docker compose exec postgres psql -U govlens -d govlens -c "select q.question_text, r.matched, r.first_relevant_rank, r.top_title from evaluation_results r join evaluation_questions q on q.evaluation_question_id = r.evaluation_question_id where r.matched = false order by r.created_at desc;"
 ```
 
+## Final Step: Pipeline Status Report
+
+The final implemented component is a compact command-line report for demo and operations checks.
+
+Business process:
+
+1. Summarize source ingestion status.
+2. Show document readiness and total processed words.
+3. Check chunk and embedding coverage.
+4. Show recent retrieval queries.
+5. Show recent evaluation metrics.
+
+Run the report:
+
+```bash
+source .venv/bin/activate
+python scripts/pipeline_report.py
+```
+
+This gives a quick proof that the full data flow is working:
+
+```text
+sources -> raw fetches -> extracted text -> documents -> chunks -> embeddings -> retrieval -> evaluation
+```
+
+## Current Implemented Scope
+
+GovLens currently implements:
+
+- trusted source registry;
+- raw HTML/PDF ingestion with content hashing;
+- ingestion run and fetch-event tracking;
+- text extraction for HTML and PDF sources;
+- normalized document metadata;
+- document quality checks and quarantine logic;
+- chunking for AI retrieval;
+- local demo embeddings stored in `pgvector`;
+- vector, keyword, and hybrid retrieval;
+- citation-ready result metadata;
+- retrieval query/result logging;
+- retrieval evaluation questions and metrics;
+- command-line pipeline status reporting.
+
 ## Comparison: GovLens vs Job-Matching App
 
 A job-matching app can also use AI and data engineering. It may ingest resumes, parse skills, normalize job postings, and rank job fit.
