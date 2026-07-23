@@ -2,3 +2,5 @@ httpx
 psycopg[binary]
 beautifulsoup4
 pypdf
+scikit-learn
+joblib

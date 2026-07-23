@@ -501,6 +501,97 @@ Inspect missed questions:
 docker compose exec postgres psql -U govlens -d govlens -c "select q.question_text, r.matched, r.first_relevant_rank, r.top_title from evaluation_results r join evaluation_questions q on q.evaluation_question_id = r.evaluation_question_id where r.matched = false order by r.created_at desc;"
 ```
 
+## Step 9: Supervised ML Reranker
+
+The ninth implemented component adds a small supervised ML model on top of hybrid retrieval.
+
+Business process:
+
+1. Use evaluation questions as labeled retrieval tasks.
+2. Retrieve candidate chunks for each question.
+3. Label a query/chunk pair as relevant when the chunk belongs to the expected source document.
+4. Split data by `question_text` into train, validation, and test groups.
+5. Train a relevance classifier using candidate text and metadata.
+6. Compare the model-assisted ranking against the baseline hybrid retrieval score.
+7. Save the model artifact and metrics for repeatable review.
+
+Model choice:
+
+The reranker uses `scikit-learn` with `TfidfVectorizer` and `LogisticRegression`. This model is intentionally lightweight and explainable. It is a good first ML baseline because it trains quickly, works with small labeled text datasets, and gives clear hyperparameters to tune before trying larger neural rerankers.
+
+Baseline:
+
+The baseline is the existing hybrid retrieval score:
+
+```text
+hybrid_score = weighted vector similarity + weighted keyword score
+```
+
+The ML model is evaluated against this baseline, not judged by itself.
+
+Leakage prevention:
+
+The train, validation, and test split is grouped by `question_text`. This prevents the same question from appearing in both training and testing.
+
+Hyperparameters tuned:
+
+```text
+TF-IDF n-gram range: (1,1) vs (1,2)
+Logistic regression C: 0.3, 1.0, 3.0
+Blend weight: how much to trust ML probability vs baseline hybrid score
+```
+
+Metrics:
+
+The script reports:
+
+```text
+Hit@K
+Mean Reciprocal Rank
+Average precision
+Precision
+Recall
+```
+
+Apply the extra evaluation-question seed migration:
+
+```bash
+docker compose exec -T postgres psql -U govlens -d govlens < db/migrations/011_seed_ml_evaluation_questions.sql
+```
+
+Install ML dependencies:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Train and evaluate the reranker:
+
+```bash
+python scripts/train_reranker.py
+```
+
+Expected demo output from the current local dataset:
+
+```text
+best_params={'classifier__C': 3.0, 'tfidf__ngram_range': (1, 2)}
+selected_model_weight=0.1
+baseline hit@5=0.75 mrr=0.40
+reranker hit@5=0.75 mrr=0.75
+test_average_precision=0.49 test_precision=0.43 test_recall=0.64
+```
+
+Run a query through the trained reranker:
+
+```bash
+python scripts/rerank_with_model.py "Which memo discusses Chief AI Officers and agency governance boards?"
+```
+
+Monitoring after deployment:
+
+The model should be monitored for retrieval quality, confidence drift, low-score queries, latency, source coverage, changed document versions, and feedback signals such as whether users click or accept returned citations.
+
 ## Final Step: Pipeline Status Report
 
 The final implemented component is a compact command-line report for demo and operations checks.
@@ -542,6 +633,7 @@ GovLens currently implements:
 - citation-ready result metadata;
 - retrieval query/result logging;
 - retrieval evaluation questions and metrics;
+- supervised ML relevance reranker with baseline comparison;
 - command-line pipeline status reporting.
 
 ## Comparison: GovLens vs Job-Matching App
